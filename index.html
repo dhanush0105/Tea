@@ -525,18 +525,16 @@
 
 
 
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Tea Visit Tracker</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&libraries=places"></script>
   <style>
     :root {
       --bg-color: #f7f9fb;
@@ -564,13 +562,11 @@
     .btn { padding: 10px 15px; margin: 5px 5px 5px 0; background: var(--btn-bg); color: var(--btn-color); border: none; border-radius: 4px; cursor: pointer; }
     .btn.stop { background: #e74c3c; }
     .btn.clear { background: #95a5a6; }
-    .map { height: 300px; border-radius: 6px; }
     input, select { padding: 8px; width: 100%; margin-bottom: 10px; border-radius: 4px; border: 1px solid #ccc; }
     .error { color: red; margin-top: 10px; }
     .history-item { border-bottom: 1px solid #eee; padding: 8px 0; }
     .history-item:last-child { border-bottom: none; }
     label { font-size: 0.9em; display: block; margin-bottom: 5px; }
-
     .toast {
       position: fixed;
       bottom: 20px;
@@ -615,22 +611,18 @@
     };
 
     const App = () => {
-      const [map, setMap] = useState(null);
-      const [marker, setMarker] = useState(null);
       const [locationHistory, setLocationHistory] = useState([]);
       const [currentLocation, setCurrentLocation] = useState(null);
       const [isTracking, setIsTracking] = useState(false);
       const intervalRef = useRef(null);
-
       const [isLoggedIn, setIsLoggedIn] = useState(false);
       const [username, setUsername] = useState('');
       const [password, setPassword] = useState('');
-      const [loginUser, setLoginUser] = useState('');
+      const [loginUser , setLoginUser ] = useState('');
       const [loginPass, setLoginPass] = useState('');
       const [users, setUsers] = useState([]);
       const [error, setError] = useState('');
       const [theme, setTheme] = useState('system');
-
       const [showRegPassword, setShowRegPassword] = useState(false);
       const [showLoginPassword, setShowLoginPassword] = useState(false);
 
@@ -658,7 +650,7 @@
       useEffect(() => {
         const savedUsers = JSON.parse(localStorage.getItem('users')) || [];
         const savedHistory = JSON.parse(localStorage.getItem('locationHistory')) || [];
-        const savedUser = JSON.parse(localStorage.getItem('loggedInUser'));
+        const savedUser  = JSON.parse(localStorage.getItem('loggedInUser'));
         setUsers(savedUsers);
         setLocationHistory(savedHistory);
         if (savedUser) {
@@ -672,14 +664,15 @@
         localStorage.setItem('locationHistory', JSON.stringify(locationHistory));
       }, [users, locationHistory]);
 
-      const validatePassword = (pass) => /[A-Z]/.test(pass) && /[0-9]/.test(pass) && /[!@#$%^&*]/.test(pass) && pass.length >= 8;
+      const validatePassword = (pass) =>
+        /[A-Z]/.test(pass) && /[0-9]/.test(pass) && /[!@#$%^&*]/.test(pass) && pass.length >= 8;
 
       const handleRegister = () => {
         if (!validatePassword(password)) {
           setError("Password must have 8+ characters, 1 uppercase, 1 number, 1 special character.");
           return;
         }
-        if (users.find(u => u.username === username)) {
+        if (users.find((u) => u.username === username)) {
           setError("Username already exists.");
           return;
         }
@@ -691,7 +684,7 @@
       };
 
       const handleLogin = () => {
-        const user = users.find(u => u.username === loginUser && u.password === loginPass);
+        const user = users.find((u) => u.username === loginUser && u.password === loginPass);
         if (user) {
           setIsLoggedIn(true);
           setUsername(user.username);
@@ -709,32 +702,44 @@
       };
 
       const reverseGeocode = async (lat, lng) => {
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
-          const data = await response.json();
-          return data.display_name || `Lat: ${lat}, Lng: ${lng}`;
-        } catch {
-          return `Lat: ${lat}, Lng: ${lng}`;
-        }
+        const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=YOUR_API_KEY`;
+        const res = await fetch(url);
+        const data = await res.json();
+        const components = data.results[0]?.address_components;
+
+        if (!components) return `Lat: ${lat}, Lng: ${lng}`;
+
+        const getArea = (types) => {
+          const comp = components.find(c => types.every(t => c.types.includes(t)));
+          return comp?.long_name || null;
+        };
+
+        return getArea(['locality']) || getArea(['sublocality']) || getArea(['administrative_area_level_2']) || getArea(['administrative_area_level_1']) || data.results[0]?.formatted_address || `Lat: ${lat}, Lng: ${lng}`;
       };
 
       const getAndRecordLocation = () => {
-        navigator.geolocation.getCurrentPosition(
-          async (pos) => {
-            const { latitude, longitude } = pos.coords;
-            const time = new Date().toLocaleString();
-            const locationName = await reverseGeocode(latitude, longitude);
-            setCurrentLocation({ latitude, longitude, time, name: locationName });
-            setLocationHistory(prev => [{ name: locationName, time }, ...prev]);
+        navigator.geolocation.getCurrentPosition(async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          const now = new Date();
+          const formattedTime = now.toLocaleString();
+          const name = await reverseGeocode(latitude, longitude);
 
-            if (map && marker) {
-              marker.setLatLng([latitude, longitude]);
-              map.setView([latitude, longitude], 16);
+          const last = locationHistory[0];
+          if (last && last.name === name) {
+            const lastTime = new Date(last.time);
+            const diffMinutes = (now - lastTime) / 60000;
+            if (diffMinutes < 15) {
+              setCurrentLocation({ latitude, longitude, time: formattedTime, name });
+              return; // Don't record same location again
             }
-          },
-          (err) => alert("Location error: " + err.message),
-          { enableHighAccuracy: true }
-        );
+          }
+
+          const newLoc = { latitude, longitude, time: formattedTime, name };
+          setCurrentLocation(newLoc);
+          setLocationHistory((prev) => [newLoc, ...prev]);
+        },
+        (err) => alert("Location error: " + err.message),
+        { enableHighAccuracy: true });
       };
 
       const startTracking = () => {
@@ -762,22 +767,15 @@
         }
       };
 
-      useEffect(() => {
-        if (currentLocation && !map) {
-          const leafletMap = L.map("map").setView([currentLocation.latitude, currentLocation.longitude], 15);
-          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; OpenStreetMap contributors',
-          }).addTo(leafletMap);
-          const newMarker = L.marker([currentLocation.latitude, currentLocation.longitude])
-            .addTo(leafletMap)
-            .bindPopup("You are here.")
-            .openPopup();
-          setMap(leafletMap);
-          setMarker(newMarker);
-        }
-      }, [currentLocation]);
-
       const totalExpense = locationHistory.length * COST_PER_TEA;
+
+      const openInGoogleMaps = () => {
+        if (currentLocation) {
+          const { latitude, longitude } = currentLocation;
+          const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
+          window.open(url, '_blank');
+        }
+      };
 
       return (
         <div className="container">
@@ -793,15 +791,15 @@
           {!isLoggedIn ? (
             <div className="card">
               <h2>Register</h2>
-              <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-              <input type={showRegPassword ? "text" : "password"} placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-              <label><input type="checkbox" onChange={() => setShowRegPassword(p => !p)} /> Show Password</label>
+              <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input type={showRegPassword ? "text" : "password"} placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              <label><input type="checkbox" onChange={() => setShowRegPassword((p) => !p)} /> Show Password</label>
               <button className="btn" onClick={handleRegister}>Register</button>
               <hr />
               <h2>Login</h2>
-              <input placeholder="Username" value={loginUser} onChange={e => setLoginUser(e.target.value)} />
-              <input type={showLoginPassword ? "text" : "password"} placeholder="Password" value={loginPass} onChange={e => setLoginPass(e.target.value)} />
-              <label><input type="checkbox" onChange={() => setShowLoginPassword(p => !p)} /> Show Password</label>
+              <input placeholder="Username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} />
+              <input type={showLoginPassword ? "text" : "password"} placeholder="Password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} />
+              <label><input type="checkbox" onChange={() => setShowLoginPassword((p) => !p)} /> Show Password</label>
               <button className="btn" onClick={handleLogin}>Login</button>
               {error && <div className="error">{error}</div>}
             </div>
@@ -820,8 +818,11 @@
               </div>
 
               <div className="card">
-                <h2>Map View</h2>
-                <div id="map" className="map"></div>
+                <h2>Current Location</h2>
+                <button className="btn" onClick={openInGoogleMaps} disabled={!currentLocation}>
+                  View in Google Maps
+                </button>
+                {currentLocation && <p><strong>{currentLocation.name}</strong></p>}
               </div>
 
               <div className="card">
