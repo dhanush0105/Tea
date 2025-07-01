@@ -720,12 +720,23 @@
       const getAndRecordLocation = () => {
         navigator.geolocation.getCurrentPosition(async (pos) => {
           const { latitude, longitude } = pos.coords;
-          const time = new Date().toLocaleString();
+          const now = new Date();
+          const formattedTime = now.toLocaleString();
           const name = await reverseGeocode(latitude, longitude);
-          const newLoc = { latitude, longitude, time, name };
 
+          const last = locationHistory[0];
+          if (last && last.name === name) {
+            const lastTime = new Date(last.time);
+            const diffMinutes = (now - lastTime) / 60000;
+            if (diffMinutes < 15) {
+              setCurrentLocation({ latitude, longitude, time: formattedTime, name });
+              return; // Don't record same location again
+            }
+          }
+
+          const newLoc = { latitude, longitude, time: formattedTime, name };
           setCurrentLocation(newLoc);
-          setLocationHistory((prev) => [{ name, time }, ...prev]);
+          setLocationHistory((prev) => [newLoc, ...prev]);
         },
         (err) => alert("Location error: " + err.message),
         { enableHighAccuracy: true });
